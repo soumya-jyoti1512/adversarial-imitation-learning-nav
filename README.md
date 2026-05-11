@@ -32,7 +32,7 @@ Instead of designing reward functions, designed a discriminator network observe 
 
 # Architecture
 
-The system combines three interlocking components — a stochastic actor-critic policy (SAC), an adversarial discriminator (GAIL), and a hybrid reward signal into an end-to-end imitation learning pipeline.
+The system combines three interlocking components, a stochastic actor-critic policy (SAC), an adversarial discriminator (GAIL), and a hybrid reward signal into an end-to-end imitation learning pipeline.
 
 ```text
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -62,7 +62,7 @@ The actor is a stochastic Gaussian MLP that maps the robot's state to a distribu
 ### State Vector (22-dimensional)
 
 - 20 LiDAR distance readings sampled every 18° over a full 360° field of view
-- Δx, Δy — relative displacement to the goal
+- Δx, Δy - relative displacement to the goal
 
 ### Output
 
