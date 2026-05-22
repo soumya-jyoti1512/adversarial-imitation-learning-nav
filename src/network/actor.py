@@ -27,6 +27,7 @@ class GaussianActor(nn.Module):
         self.state_dim = state_dim
         self.action_dim = action_dim
 
+        #Shared MLP trunk
         layers: list[nn.Module] = []
         last = state_dim
         for h in hidden_dims:
@@ -35,6 +36,7 @@ class GaussianActor(nn.Module):
             last = h
         self.trunk = nn.Sequential(*layers)
 
+        #Mean and log-std heads
         self.mean_head = nn.Linear(last, action_dim)
         self.log_std_head = nn.Linear(last, action_dim)
 
@@ -42,6 +44,7 @@ class GaussianActor(nn.Module):
             nn.init.uniform_(head.weight, -3e-3, 3e-3)
             nn.init.uniform_(head.bias, -3e-3, 3e-3)
 
+        #Action scaling
         scale = torch.as_tensor(action_scale, dtype=torch.float32)
         bias = torch.as_tensor(action_bias, dtype=torch.float32)
         if scale.ndim == 0:
@@ -56,27 +59,19 @@ class GaussianActor(nn.Module):
             )
         self.register_buffer("action_scale", scale)
         self.register_buffer("action_bias", bias)
-    
+
+    # Internal: produce the pre-squash Gaussian parameters.
     def _forward_dist(self, state: Tensor) -> tuple[Tensor, Tensor]:
         h = self.trunk(state)
         mean = self.mean_head(h)
         log_std = self.log_std_head(h).clamp(self.LOG_STD_MIN, self.LOG_STD_MAX)
         return mean, log_std
 
+   
     def forward(
         self, state: Tensor, *, deterministic: bool = False
     ) -> tuple[Tensor, Tensor]:
-        """Sample an action and return ``(action, log_prob)``.
-
-        Args:
-            state:         Tensor of shape ``(B, state_dim)``.
-            deterministic: If True, return ``a = scale · tanh(μ) + bias`` and a
-                           zero log-prob. Used for evaluation rollouts.
-
-        Returns:
-            action:   Tensor ``(B, action_dim)``, in the env's action range.
-            log_prob: Tensor ``(B, 1)``.
-        """
+        
         mean, log_std = self._forward_dist(state)
 
         if deterministic:
@@ -85,13 +80,12 @@ class GaussianActor(nn.Module):
         else:
             std = log_std.exp()
             normal = Normal(mean, std)
-            
+           
             u = normal.rsample()
 
-           
             log_prob_u = normal.log_prob(u).sum(dim=-1, keepdim=True)
 
-           
+            # Tanh change-of-variables correction, numerically stable.
             squash_correction = (
                 2.0 * (math.log(2.0) - u - F.softplus(-2.0 * u))
             ).sum(dim=-1, keepdim=True)
@@ -118,7 +112,6 @@ if __name__ == "__main__":
     torch.manual_seed(0)
 
     state_dim, action_dim, batch = 22, 3, 8
-    
     scale = torch.tensor([1.0, 1.0, 1.5])
 
     actor = GaussianActor(state_dim, action_dim, action_scale=scale)
@@ -132,7 +125,6 @@ if __name__ == "__main__":
     print(f"det.action range=[{a_det.min():.3f}, {a_det.max():.3f}]  "
           f"logp_det={logp_det.abs().sum():.1f}  (expect 0)")
 
-   
     loss = -logp.mean()
     loss.backward()
     assert actor.mean_head.weight.grad is not None
