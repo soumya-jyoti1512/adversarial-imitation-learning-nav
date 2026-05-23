@@ -61,19 +61,6 @@ Actions are sampled using the **reparameterization trick** and passed through a 
 
 ![Actor Network](flowcharts/diagram2_actor.png)
 
-```text
-State s ──► Shared MLP (ReLU) ──► μ(s) 
-                              └──► log σ(s) ──► exp ──► σ(s)         
-                                                         │           
-                                               N(μ,σ²) ◄─┘           
-                                                   │                 
-                                            Reparameterization       
-                                                   │                 
-                                              Tanh Squash            
-                                                   │                 
-                                              Action â               
-```
-
 The actor is trained under the maximum entropy reinforcement learning framework.
 
 ---
@@ -94,15 +81,6 @@ y = r_{total} + \gamma \cdot \left( \min Q_{target}(s', a') - \alpha \log \pi(a'
 
 ![Critic Networks](flowcharts/diagram3_critic.png)
 
-```text
-[s || a] ──►┬──► Critic Q1 ──► Q1(s,a) ──►┐
-            └──► Critic Q2 ──► Q2(s,a) ──►┤
-                                          ▼
-                                      min(Q1,Q2)
-                                            │
-                                      Bellman Target
-```
-
 ---
 
 ## 3. Adversarial Discriminator - GAIL Component
@@ -122,12 +100,6 @@ r_{gail}(s,a) = -\log(1 - D(s,a))
 ```
 
 ![GAIL Discriminator](flowcharts/diagram4_gail.png)
-
-```text
-Expert transitions ──►┐
-                      ├──► Discriminator D(s,a) ──► r_gail(s,a)
-Agent transitions ───►┘
-```
 
 The reward signal becomes progressively harder to earn as the discriminator improves during training.
 
@@ -168,16 +140,6 @@ C  = 1.0
 
 ![Hybrid Reward](flowcharts/diagram5_hybrid_reward.png)
 
-```text
-Agent transition (s,a,s') ──►┐
-                             ├──► Discriminator ──► r_gail
-                             ├──► Goal Delta ─────► r_goal
-                             └──► LiDAR Check ────► r_collision
-                                                    │
-                                                    ▼
-                           r_total = r_gail + λ₁·r_goal + λ₂·r_collision
-```
-
 ---
 
 ## 5. Replay Buffers
@@ -207,19 +169,6 @@ Used exclusively for:
 Training alternates between environment interaction and optimization.
 
 ![Training Loop](flowcharts/diagram6_training_loop.png)
-
-```text
-┌────────────── Training Iteration ───────────────────────────────┐
-│                                                                 │
-│ Step 1 │ Policy Rollout                                         │
-│ Step 2 │ Discriminator Update                                   │
-│ Step 3 │ Hybrid Reward Computation                              │
-│ Step 4 │ Critic Update                                          │
-│ Step 5 │ Actor Update                                           │
-│ Step 6 │ Target Network Update                                  │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
-```
 
 ### Training Objective
 
@@ -307,7 +256,7 @@ The process repeats until convergence.
 | Success Rate | 92% |
 | Collision Rate | 11% |
 | Avg Episode Length | 210 steps |
-| Avg Distance to Goal | 0.32 m |
+| Avg Distance to Goal | 8.32 m |
 
 ---
 
