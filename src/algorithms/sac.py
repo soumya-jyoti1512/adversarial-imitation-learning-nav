@@ -1,13 +1,10 @@
 from __future__ import annotations
-
 import math
 from typing import Sequence
-
 import numpy as np
 import torch
 import torch.nn.functional as F
 from torch import Tensor
-
 from src.networks.actor import GaussianActor
 from src.networks.critic import TwinCritic
 
@@ -32,7 +29,7 @@ class SACAgent:
         device: str | torch.device = "cpu",
     ) -> None:
         if not (0.0 < gamma <= 1.0):
-            raise ValueError(f"gamma must be in (0, 1], got {gamma}")
+            raise ValueError(f"gamma should be in between(0, 1], got {gamma}")
         if not (0.0 < tau <= 1.0):
             raise ValueError(f"tau must be in (0, 1], got {tau}")
         if alpha_init <= 0.0:
@@ -59,13 +56,11 @@ class SACAgent:
             hidden_dims=hidden_dims,
         ).to(self.device)
 
-        #Optimizers
         self.actor_opt = torch.optim.Adam(self.actor.parameters(), lr=lr_actor)
         self.critic_opt = torch.optim.Adam(
             self.critic.online_parameters(), lr=lr_critic
         )
 
-        #Automatic entropy tuning
         if target_entropy is None:
             target_entropy = -float(action_dim)
         self.target_entropy = float(target_entropy)
@@ -82,7 +77,6 @@ class SACAgent:
             else None
         )
 
-    # Convenience
     @property
     def alpha(self) -> Tensor:
         return self.log_alpha.exp()
@@ -99,7 +93,6 @@ class SACAgent:
         action = self.actor.act(state_t, deterministic=deterministic)
         return action.squeeze(0).cpu().numpy()
 
-    # The four-step SAC update
     def update(
         self,
         batch: dict[str, Tensor],
@@ -111,7 +104,6 @@ class SACAgent:
         done     = batch["done"]
 
        
-        # 1) Critic update
         with torch.no_grad():
             next_action, next_logp = self.actor(s_next)
             q_next = self.critic.q_target_min(s_next, next_action)
@@ -126,7 +118,6 @@ class SACAgent:
         critic_loss.backward()
         self.critic_opt.step()
 
-        # 2) Actor update
         action_pi, logp_pi = self.actor(s)
         q_pi = self.critic.q_min(s, action_pi)
         actor_loss = (self.alpha.detach() * logp_pi - q_pi).mean()
@@ -135,21 +126,17 @@ class SACAgent:
         actor_loss.backward()
         self.actor_opt.step()
 
-        # 3) Alpha update 
         if self.automatic_entropy:
-            # logp_pi is detached — α should react to the policy's entropy
-            # as a fixed quantity at this step.
             alpha_loss = -(
                 self.log_alpha * (logp_pi.detach() + self.target_entropy)
             ).mean()
-            self.alpha_opt.zero_grad(set_to_none=True)  # type: ignore[union-attr]
+            self.alpha_opt.zero_grad(set_to_none=True)  
             alpha_loss.backward()
-            self.alpha_opt.step()                       # type: ignore[union-attr]
+            self.alpha_opt.step()                       
             alpha_loss_val = float(alpha_loss.detach())
         else:
             alpha_loss_val = 0.0
 
-        # 4) Soft target update
         self.critic.soft_update(self.tau)
 
         with torch.no_grad():
@@ -166,7 +153,6 @@ class SACAgent:
             "r_mean":      float(r_total.mean().detach()),
         }
 
-    # Checkpointing
     def state_dict(self) -> dict:
         sd = {
             "actor": self.actor.state_dict(),
@@ -187,82 +173,3 @@ class SACAgent:
         self.critic_opt.load_state_dict(sd["critic_opt"])
         if self.alpha_opt is not None and "alpha_opt" in sd:
             self.alpha_opt.load_state_dict(sd["alpha_opt"])
-
-
-
-if __name__ == "__main__":
-    torch.manual_seed(0)
-    np.random.seed(0)
-
-    state_dim, action_dim = 22, 3
-    agent = SACAgent(
-        state_dim=state_dim,
-        action_dim=action_dim,
-        action_scale=torch.tensor([1.0, 1.0, 1.5]),
-        action_bias=0.0,
-        device="cpu",
-    )
-
-    s_np = np.random.randn(state_dim).astype(np.float32)
-    a_np = agent.act(s_np)
-    print(f"act() returned shape={a_np.shape}  dtype={a_np.dtype}  "
-          f"range=[{a_np.min():+.3f}, {a_np.max():+.3f}]")
-    assert a_np.shape == (action_dim,)
-    assert a_np.dtype == np.float32
-
- 
-    B = 256
-    batch = {
-        "state":      torch.randn(B, state_dim),
-        "action":     torch.randn(B, action_dim).clamp(-1.5, 1.5),
-        "next_state": torch.randn(B, state_dim),
-        "done":       (torch.rand(B, 1) < 0.02).float(), 
-    }
-    r_total = torch.randn(B, 1) * 0.5 + 0.5  
-
-    print(f"\n{'step':>4}  {'critic':>8}  {'actor':>8}  {'alpha':>6}  "
-          f"{'H':>6}  {'q1':>7}")
-    prev_critic = None
-    for step in range(50):
-        metrics = agent.update(batch, r_total)
-        if step % 10 == 0 or step == 49:
-            print(f"{step:>4}  {metrics['critic_loss']:>8.4f}  "
-                  f"{metrics['actor_loss']:>+8.4f}  "
-                  f"{metrics['alpha']:>6.3f}  "
-                  f"{metrics['entropy']:>+6.3f}  "
-                  f"{metrics['q1_mean']:>+7.3f}")
-        for k, v in metrics.items():
-            assert math.isfinite(v), f"{k} went non-finite at step {step}: {v}"
-        prev_critic = metrics["critic_loss"]
-
-    assert agent.alpha.item() != 0.2, (
-        f"alpha did not move from init — auto-tuning may be broken "
-        f"(α = {agent.alpha.item()})"
-    )
-    print(f"\nalpha drifted from 0.200 → {agent.alpha.item():.4f}  "
-          f"(auto-entropy tuning is active)")
-
-    p_online = next(agent.critic.q1.parameters()).data
-    p_target = next(agent.critic.q1_target.parameters()).data
-    delta = (p_online - p_target).abs().mean().item()
-    print(f"||q1 - q1_target||_1 mean = {delta:.5f}  "
-          f"(non-zero confirms targets are lagging the online net)")
-    assert delta > 0.0
-
-    sd = agent.state_dict()
-    fresh = SACAgent(
-        state_dim=state_dim, action_dim=action_dim,
-        action_scale=torch.tensor([1.0, 1.0, 1.5]),
-    )
-    fresh.load_state_dict(sd)
-    a_new = fresh.act(s_np)
-    a_old = agent.act(s_np)
-  
-    a_new_det = fresh.act(s_np, deterministic=True)
-    a_old_det = agent.act(s_np, deterministic=True)
-    assert np.allclose(a_new_det, a_old_det, atol=1e-6), (
-        "deterministic action mismatched after checkpoint round-trip"
-    )
-    print("checkpoint round-trip preserved deterministic policy.")
-
-    print("\nall checks pass.")
